@@ -37,13 +37,28 @@ local function handle_git_diff(revision)
       
       local lines_diff = diff.compute_diff(lines_git, lines_current)
       
-      -- Get git root for virtual file URL
+      -- Get git root and relative path for virtual file URL
       local git_root = git.get_git_root(current_file)
+      local relative_path = current_file:gsub('^' .. vim.pesc(git_root .. '/'), '')
+      
+      -- Determine filetype from current buffer
+      local filetype = vim.bo[0].filetype
+      if not filetype or filetype == "" then
+        filetype = vim.filetype.match({ filename = current_file })
+      end
       
       render.create_diff_view(lines_git, lines_current, lines_diff, {
-        right_file = current_file,
-        git_revision = revision,
-        git_root = git_root,
+        left_type = render.BufferType.VIRTUAL_FILE,
+        left_config = {
+          git_root = git_root,
+          git_revision = revision,
+          relative_path = relative_path,
+        },
+        right_type = render.BufferType.REAL_FILE,
+        right_config = {
+          file_path = current_file,
+        },
+        filetype = filetype,
       })
     end)
   end)
@@ -54,7 +69,17 @@ local function handle_file_diff(file_a, file_b)
   local lines_b = vim.fn.readfile(file_b)
 
   local lines_diff = diff.compute_diff(lines_a, lines_b)
-  render.create_diff_view(lines_a, lines_b, lines_diff)
+  
+  -- Determine filetype from first file
+  local filetype = vim.filetype.match({ filename = file_a })
+  
+  render.create_diff_view(lines_a, lines_b, lines_diff, {
+    left_type = render.BufferType.SCRATCH,
+    left_config = {},
+    right_type = render.BufferType.SCRATCH,
+    right_config = {},
+    filetype = filetype,
+  })
 end
 
 function M.vscode_diff(opts)

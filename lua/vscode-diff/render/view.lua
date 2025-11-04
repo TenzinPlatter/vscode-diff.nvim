@@ -3,119 +3,110 @@ local M = {}
 
 local core = require('vscode-diff.render.core')
 local lifecycle = require('vscode-diff.render.lifecycle')
+local semantic = require('vscode-diff.render.semantic_tokens')
+local virtual_file = require('vscode-diff.virtual_file')
+
+-- Buffer type enumeration
+M.BufferType = {
+  VIRTUAL_FILE = "VIRTUAL_FILE",  -- Virtual file (vscodediff://) for LSP semantic tokens
+  REAL_FILE = "REAL_FILE",        -- Real file on disk
+  SCRATCH = "SCRATCH"             -- Scratch buffer with no file backing
+}
+
+-- Create a buffer based on its type and configuration
+local function create_buffer(buffer_type, config)
+  if buffer_type == M.BufferType.VIRTUAL_FILE then
+    -- Virtual file: URL is returned, buffer created by :edit command
+    local virtual_url = virtual_file.create_url(config.git_root, config.git_revision, config.relative_path)
+    return nil, virtual_url
+  elseif buffer_type == M.BufferType.REAL_FILE then
+    -- Real file: reuse existing buffer or create new one
+    local existing_buf = vim.fn.bufnr(config.file_path)
+    if existing_buf ~= -1 then
+      return existing_buf, nil
+    else
+      local buf = vim.api.nvim_create_buf(false, false)
+      vim.api.nvim_buf_set_name(buf, config.file_path)
+      vim.bo[buf].buftype = ""
+      vim.fn.bufload(buf)
+      return buf, nil
+    end
+  else  -- SCRATCH
+    -- Scratch buffer: temporary, wiped on close
+    local buf = vim.api.nvim_create_buf(false, true)
+    vim.bo[buf].modifiable = false
+    vim.bo[buf].buftype = "nofile"
+    vim.bo[buf].bufhidden = "wipe"
+    return buf, nil
+  end
+end
 
 -- Create side-by-side diff view
 -- @param original_lines table: Lines from the original version
 -- @param modified_lines table: Lines from the modified version
 -- @param lines_diff table: Diff result from compute_diff
--- @param opts table: Optional settings
---   - right_file string: If provided, the right buffer will be linked to this file and made editable
---   - git_revision string: If provided (e.g., "HEAD"), creates a virtual file URL for LSP
---   - git_root string: Required if git_revision is provided
+-- @param opts table: Required settings
+--   - left_type string: Buffer type for left buffer (BufferType.VIRTUAL_FILE, REAL_FILE, or SCRATCH)
+--   - right_type string: Buffer type for right buffer (BufferType.VIRTUAL_FILE, REAL_FILE, or SCRATCH)
+--   - left_config table: Configuration for left buffer (depends on left_type)
+--   - right_config table: Configuration for right buffer (depends on right_type)
+--   - filetype string (optional): Filetype for syntax highlighting
 function M.create(original_lines, modified_lines, lines_diff, opts)
   opts = opts or {}
   
-  -- Create left buffer - use virtual file URL if this is a git diff
-  local left_buf
-  local is_virtual_file = opts.git_revision and opts.git_root and opts.right_file
-  local virtual_url = nil
+  -- Create buffers based on their types
+  local left_buf, left_virtual_url = create_buffer(opts.left_type, opts.left_config or {})
+  local right_buf, right_virtual_url = create_buffer(opts.right_type, opts.right_config or {})
   
-  if is_virtual_file then
-    -- Create a virtual file URL that LSP can attach to
-    local virtual_file = require('vscode-diff.virtual_file')
-    local relative_path = opts.right_file:gsub('^' .. vim.pesc(opts.git_root .. '/'), '')
-    virtual_url = virtual_file.create_url(opts.git_root, opts.git_revision, relative_path)
-    
-    -- Don't create buffer here - let :edit create it and trigger BufReadCmd
-    left_buf = nil
-  else
-    -- Fallback to scratch buffer
-    left_buf = vim.api.nvim_create_buf(false, true)
-    
-    -- Set buffer options for scratch buffer
-    vim.bo[left_buf].modifiable = false
-    vim.bo[left_buf].buftype = "nofile"
-    vim.bo[left_buf].bufhidden = "wipe"
-  end
+  -- Determine if we need to wait for virtual file content to load
+  local has_virtual_buffer = (opts.left_type == M.BufferType.VIRTUAL_FILE) or (opts.right_type == M.BufferType.VIRTUAL_FILE)
+  local defer_render = has_virtual_buffer
   
-  local right_buf
-  
-  -- If right_file is provided, reuse existing buffer or create a real file buffer
-  if opts.right_file then
-    local existing_buf = vim.fn.bufnr(opts.right_file)
-    if existing_buf ~= -1 then
-      right_buf = existing_buf
-    else
-      right_buf = vim.api.nvim_create_buf(false, false)
-      vim.api.nvim_buf_set_name(right_buf, opts.right_file)
-      vim.bo[right_buf].buftype = ""
-      vim.fn.bufload(right_buf)
-    end
-  else
-    right_buf = vim.api.nvim_create_buf(false, true)
-  end
-
-  -- For virtual file URLs, buffer options are set by BufReadCmd
-  -- For scratch buffers, we set them here
-  if not (opts.git_revision and opts.git_root) then
-    vim.bo[left_buf].modifiable = false
-    vim.bo[left_buf].buftype = "nofile"
-    vim.bo[left_buf].bufhidden = "wipe"
-  end
-  
-  -- Set buffer options for right buffer
-  if not opts.right_file then
-    local right_buf_opts = {
-      modifiable = false,
-      buftype = "nofile",
-      bufhidden = "wipe",
-    }
-    for opt, val in pairs(right_buf_opts) do
-      vim.bo[right_buf][opt] = val
-    end
-  end
-
-  -- Temporarily make buffers modifiable for content and filler insertion
-  if not is_virtual_file then
-    vim.bo[left_buf].modifiable = true
-  end
-  vim.bo[right_buf].modifiable = true
-
-  -- For non-virtual files, render diff now
-  -- For virtual files, we'll render after content loads
+  -- Render diff immediately if no virtual files, or defer if virtual files exist
   local result
-  if not is_virtual_file then
-    result = core.render_diff(left_buf, right_buf, original_lines, modified_lines, lines_diff, opts.right_file ~= nil, false)
+  if defer_render then
+    result = nil
+  else
+    -- Both buffers are ready, render immediately
+    if left_buf then vim.bo[left_buf].modifiable = true end
+    if right_buf then vim.bo[right_buf].modifiable = true end
     
-    -- Make left buffer read-only again
-    vim.bo[left_buf].modifiable = false
-  end
-  
-  -- Make right buffer read-only only if it's not a real file
-  if not opts.right_file then
-    vim.bo[right_buf].modifiable = false
+    result = core.render_diff(left_buf, right_buf, original_lines, modified_lines, lines_diff, 
+                               opts.right_type == M.BufferType.REAL_FILE, false)
+    
+    if left_buf and opts.left_type ~= M.BufferType.REAL_FILE then
+      vim.bo[left_buf].modifiable = false
+    end
+    if right_buf and opts.right_type ~= M.BufferType.REAL_FILE then
+      vim.bo[right_buf].modifiable = false
+    end
   end
 
   -- Create side-by-side windows
   vim.cmd("tabnew")
-  local initial_buf = vim.api.nvim_get_current_buf()  -- The unnamed buffer created by tabnew
+  local initial_buf = vim.api.nvim_get_current_buf()
   local left_win = vim.api.nvim_get_current_win()
   
-  -- For virtual files, use :edit to trigger BufReadCmd
-  if is_virtual_file then
-    -- :edit will create the buffer and trigger BufReadCmd autocmd
-    vim.cmd("edit " .. vim.fn.fnameescape(virtual_url))
-    left_buf = vim.api.nvim_get_current_buf()  -- Get the buffer created by :edit
+  -- Set left buffer/window
+  if left_virtual_url then
+    vim.cmd("edit " .. vim.fn.fnameescape(left_virtual_url))
+    left_buf = vim.api.nvim_get_current_buf()
   else
     vim.api.nvim_win_set_buf(left_win, left_buf)
   end
 
   vim.cmd("vsplit")
   local right_win = vim.api.nvim_get_current_win()
-  vim.api.nvim_win_set_buf(right_win, right_buf)
   
-  -- Delete the initial unnamed buffer that was created by tabnew
-  -- It's not needed since we replaced it with our diff buffers
+  -- Set right buffer/window
+  if right_virtual_url then
+    vim.cmd("edit " .. vim.fn.fnameescape(right_virtual_url))
+    right_buf = vim.api.nvim_get_current_buf()
+  else
+    vim.api.nvim_win_set_buf(right_win, right_buf)
+  end
+  
+  -- Clean up initial buffer
   if vim.api.nvim_buf_is_valid(initial_buf) and initial_buf ~= left_buf and initial_buf ~= right_buf then
     pcall(vim.api.nvim_buf_delete, initial_buf, { force = true })
   end
@@ -138,32 +129,22 @@ function M.create(original_lines, modified_lines, lines_diff, opts)
     vim.wo[right_win][opt] = val
   end
 
-  -- Set buffer names
-  -- For virtual files, don't rename (they already have the vscodediff:// URL)
-  if not is_virtual_file then
-    if not opts.right_file then
-      local unique_id = math.random(1000000, 9999999)
-      pcall(vim.api.nvim_buf_set_name, left_buf, string.format("Original_%d", unique_id))
-      pcall(vim.api.nvim_buf_set_name, right_buf, string.format("Modified_%d", unique_id))
-    else
-      local unique_id = math.random(1000000, 9999999)
-      pcall(vim.api.nvim_buf_set_name, left_buf, string.format("Original_%d", unique_id))
-    end
+  -- Set buffer names for scratch buffers
+  local unique_id = math.random(1000000, 9999999)
+  if opts.left_type == M.BufferType.SCRATCH then
+    pcall(vim.api.nvim_buf_set_name, left_buf, string.format("Original_%d", unique_id))
+  end
+  if opts.right_type == M.BufferType.SCRATCH then
+    pcall(vim.api.nvim_buf_set_name, right_buf, string.format("Modified_%d", unique_id))
   end
   
-  -- Enable syntax highlighting on left buffer (for non-virtual files only)
-  -- Virtual files get filetype set in BufReadCmd
-  if not is_virtual_file and opts.right_file then
-    -- Get filetype from right buffer (the actual file)
-    local filetype = vim.bo[right_buf].filetype
-    if filetype and filetype ~= "" then
-      vim.bo[left_buf].filetype = filetype
-    else
-      -- Fallback: detect from filename
-      local ft = vim.filetype.match({ filename = opts.right_file })
-      if ft then
-        vim.bo[left_buf].filetype = ft
-      end
+  -- Set filetype for syntax highlighting (if not VIRTUAL_FILE, which sets its own)
+  if opts.filetype then
+    if opts.left_type ~= M.BufferType.VIRTUAL_FILE and left_buf then
+      vim.bo[left_buf].filetype = opts.filetype
+    end
+    if opts.right_type ~= M.BufferType.VIRTUAL_FILE and right_buf then
+      vim.bo[right_buf].filetype = opts.filetype
     end
   end
 
@@ -171,25 +152,31 @@ function M.create(original_lines, modified_lines, lines_diff, opts)
   local current_tab = vim.api.nvim_get_current_tabpage()
   lifecycle.register(current_tab, left_buf, right_buf, left_win, right_win)
   
-  -- For virtual files, set up autocmd to apply diff highlights after content loads
-  if is_virtual_file then
-    local group = vim.api.nvim_create_augroup('VscodeDiffVirtualFileHighlight_' .. left_buf, { clear = true })
+  -- Post-creation setup based on whether we deferred rendering
+  if defer_render then
+    -- Virtual file(s) exist: Set up autocmd to apply diff highlights after content loads
+    -- We use the first virtual buffer to trigger (could be left or right)
+    local trigger_buf = (opts.left_type == M.BufferType.VIRTUAL_FILE) and left_buf or right_buf
+    local group = vim.api.nvim_create_augroup('VscodeDiffVirtualFileHighlight_' .. trigger_buf, { clear = true })
     vim.api.nvim_create_autocmd('User', {
       group = group,
       pattern = 'VscodeDiffVirtualFileLoaded',
       callback = function(event)
-        if event.data and event.data.buf == left_buf then
+        if event.data and event.data.buf == trigger_buf then
           vim.schedule(function()
-            -- Now apply diff highlights
-            result = core.render_diff(left_buf, right_buf, original_lines, modified_lines, lines_diff, opts.right_file ~= nil, true)
+            result = core.render_diff(left_buf, right_buf, original_lines, modified_lines, lines_diff, 
+                                       opts.right_type == M.BufferType.REAL_FILE, true)
             
-            -- Request semantic tokens from right buffer's LSP for left buffer
+            -- Apply semantic tokens if we have virtual file(s)
             vim.schedule(function()
-              local semantic = require('vscode-diff.render.semantic')
-              semantic.apply_semantic_tokens(left_buf, right_buf)
+              if opts.left_type == M.BufferType.VIRTUAL_FILE then
+                semantic.apply_semantic_tokens(left_buf, right_buf)
+              end
+              if opts.right_type == M.BufferType.VIRTUAL_FILE then
+                semantic.apply_semantic_tokens(right_buf, left_buf)
+              end
             end)
             
-            -- Auto-scroll to first hunk
             if #lines_diff.changes > 0 then
               local first_change = lines_diff.changes[1]
               local target_line = first_change.original.start_line
@@ -203,25 +190,23 @@ function M.create(original_lines, modified_lines, lines_diff, opts)
               end
             end
             
-            -- Clean up the autocmd
             vim.api.nvim_del_augroup_by_id(group)
           end)
         end
       end,
     })
-  end
-
-  -- Auto-scroll to center the first hunk
-  -- For virtual files, skip for now (will be done after content loads)
-  if #lines_diff.changes > 0 and not is_virtual_file then
-    local first_change = lines_diff.changes[1]
-    local target_line = first_change.original.start_line
-    
-    vim.api.nvim_win_set_cursor(left_win, {target_line, 0})
-    vim.api.nvim_win_set_cursor(right_win, {target_line, 0})
-    
-    vim.api.nvim_set_current_win(right_win)
-    vim.cmd("normal! zz")
+  else
+    -- No virtual files: Auto-scroll immediately
+    if #lines_diff.changes > 0 then
+      local first_change = lines_diff.changes[1]
+      local target_line = first_change.original.start_line
+      
+      vim.api.nvim_win_set_cursor(left_win, {target_line, 0})
+      vim.api.nvim_win_set_cursor(right_win, {target_line, 0})
+      
+      vim.api.nvim_set_current_win(right_win)
+      vim.cmd("normal! zz")
+    end
   end
 
   return {

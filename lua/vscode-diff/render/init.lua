@@ -12,6 +12,9 @@ M.setup_highlights = highlights.setup
 M.create_diff_view = view.create
 M.render_diff = core.render_diff
 
+-- Export buffer type enum
+M.BufferType = view.BufferType
+
 -- Export lifecycle functions
 M.cleanup = lifecycle.cleanup
 M.cleanup_all = lifecycle.cleanup_all

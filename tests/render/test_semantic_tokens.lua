@@ -24,7 +24,7 @@ end
 
 -- Test 1: Module loads without errors
 test("Module loads successfully", function()
-  local semantic = require("vscode-diff.render.semantic")
+  local semantic = require("vscode-diff.render.semantic_tokens")
   assert(semantic ~= nil, "Module should load")
   assert(type(semantic.apply_semantic_tokens) == "function", "Should export apply_semantic_tokens")
   assert(type(semantic.clear) == "function", "Should export clear")
@@ -32,7 +32,7 @@ end)
 
 -- Test 2: Version compatibility check
 test("Version compatibility check works", function()
-  local semantic = require("vscode-diff.render.semantic")
+  local semantic = require("vscode-diff.render.semantic_tokens")
   
   -- Should gracefully return false if no clients
   local result = semantic.apply_semantic_tokens(1, 1)
@@ -58,7 +58,7 @@ end)
 
 -- Test 4: Clear function works
 test("Clear function works without errors", function()
-  local semantic = require("vscode-diff.render.semantic")
+  local semantic = require("vscode-diff.render.semantic_tokens")
   
   -- Create a test buffer
   local buf = vim.api.nvim_create_buf(false, true)
@@ -73,7 +73,7 @@ end)
 
 -- Test 5: Namespace is created correctly
 test("Semantic token namespace exists", function()
-  local semantic = require("vscode-diff.render.semantic")
+  local semantic = require("vscode-diff.render.semantic_tokens")
   
   local namespaces = vim.api.nvim_get_namespaces()
   assert(namespaces.vscode_diff_semantic_tokens ~= nil, 
@@ -88,7 +88,7 @@ test("Integration with LSP client (if available)", function()
     return
   end
   
-  local semantic = require("vscode-diff.render.semantic")
+  local semantic = require("vscode-diff.render.semantic_tokens")
   
   -- Create test buffers
   local left_buf = vim.api.nvim_create_buf(false, true)
@@ -176,7 +176,7 @@ end)
 
 -- Test 10: Graceful handling of missing capabilities
 test("Handles missing semantic token capabilities", function()
-  local semantic = require("vscode-diff.render.semantic")
+  local semantic = require("vscode-diff.render.semantic_tokens")
   
   -- Create buffers with no LSP client
   local left_buf = vim.api.nvim_create_buf(false, true)
