@@ -138,8 +138,8 @@ static int test_large_file(void) {
     TEST("Large file diff (1000 lines)");
     
     // Allocate large arrays
-    const char** original = malloc(LARGE_FILE_SIZE * sizeof(char*));
-    const char** modified = malloc(LARGE_FILE_SIZE * sizeof(char*));
+    char** original = malloc(LARGE_FILE_SIZE * sizeof(char*));
+    char** modified = malloc(LARGE_FILE_SIZE * sizeof(char*));
     
     ASSERT(original != NULL && modified != NULL, "Memory allocated for test data");
     
@@ -162,15 +162,15 @@ static int test_large_file(void) {
     
     DiffOptions options = {0};
     
-    LinesDiff* diff = compute_diff(original, LARGE_FILE_SIZE, modified, LARGE_FILE_SIZE, &options);
+    LinesDiff* diff = compute_diff((const char**)original, LARGE_FILE_SIZE, (const char**)modified, LARGE_FILE_SIZE, &options);
     ASSERT(diff != NULL, "Large file diff computed");
     
     free_lines_diff(diff);
     
     // Cleanup test data
     for (int i = 0; i < LARGE_FILE_SIZE; i++) {
-        free((void*)original[i]);
-        free((void*)modified[i]);
+        free(original[i]);
+        free(modified[i]);
     }
     free(original);
     free(modified);
