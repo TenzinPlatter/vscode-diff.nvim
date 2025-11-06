@@ -77,7 +77,7 @@ jobs:
         if: startsWith(matrix.runs-on, 'windows')
         shell: pwsh
         run: |
-          choco install neovim --pre -y
+          winget install --id Neovim.Neovim.Nightly --accept-source-agreements --accept-package-agreements
           $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
           nvim --version | Select-Object -First 1
 

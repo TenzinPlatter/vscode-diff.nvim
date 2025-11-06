@@ -4,6 +4,20 @@
 local render = require("vscode-diff.render")
 local diff = require("vscode-diff.diff")
 
+-- Helper function to get platform-agnostic temp directory
+local function get_temp_dir()
+  local is_windows = vim.fn.has("win32") == 1 or vim.fn.has("win64") == 1
+  if is_windows then
+    return vim.fn.getenv("TEMP") or vim.fn.getenv("TMP") or "C:\\Windows\\Temp"
+  else
+    return "/tmp"
+  end
+end
+
+local function get_temp_path(filename)
+  return get_temp_dir() .. (vim.fn.has("win32") == 1 and "\\" or "/") .. filename
+end
+
 describe("Auto-scroll to first hunk", function()
   before_each(function()
     -- Setup highlights (was done globally in original)
@@ -29,15 +43,17 @@ describe("Auto-scroll to first hunk", function()
     end
 
     -- Write files to disk
-    vim.fn.writefile(original_lines, "/tmp/test_left.txt")
-    vim.fn.writefile(modified_lines, "/tmp/test_right.txt")
+    local left_path = get_temp_path("test_left.txt")
+    local right_path = get_temp_path("test_right.txt")
+    vim.fn.writefile(original_lines, left_path)
+    vim.fn.writefile(modified_lines, right_path)
 
     local lines_diff = diff.compute_diff(original_lines, modified_lines)
     local view = render.create_diff_view(original_lines, modified_lines, lines_diff, {
       left_type = render.BufferType.REAL_FILE,
-      left_config = { file_path = "/tmp/test_left.txt" },
+      left_config = { file_path = left_path },
       right_type = render.BufferType.REAL_FILE,
-      right_config = { file_path = "/tmp/test_right.txt" },
+      right_config = { file_path = right_path },
     })
     
     -- Wait for vim.schedule to complete
@@ -57,15 +73,17 @@ describe("Auto-scroll to first hunk", function()
     local modified_lines = {"new line 1", "unchanged 2", "unchanged 3"}
 
     -- Write files to disk
-    vim.fn.writefile(original_lines, "/tmp/test_left2.txt")
-    vim.fn.writefile(modified_lines, "/tmp/test_right2.txt")
+    local left_path = get_temp_path("test_left2.txt")
+    local right_path = get_temp_path("test_right2.txt")
+    vim.fn.writefile(original_lines, left_path)
+    vim.fn.writefile(modified_lines, right_path)
 
     local lines_diff = diff.compute_diff(original_lines, modified_lines)
     local view = render.create_diff_view(original_lines, modified_lines, lines_diff, {
       left_type = render.BufferType.REAL_FILE,
-      left_config = { file_path = "/tmp/test_left2.txt" },
+      left_config = { file_path = left_path },
       right_type = render.BufferType.REAL_FILE,
-      right_config = { file_path = "/tmp/test_right2.txt" },
+      right_config = { file_path = right_path },
     })
 
     -- Wait for vim.schedule to complete
@@ -98,15 +116,17 @@ describe("Auto-scroll to first hunk", function()
     end
 
     -- Write files to disk
-    vim.fn.writefile(original_lines, "/tmp/test_left3.txt")
-    vim.fn.writefile(modified_lines, "/tmp/test_right3.txt")
+    local left_path = get_temp_path("test_left3.txt")
+    local right_path = get_temp_path("test_right3.txt")
+    vim.fn.writefile(original_lines, left_path)
+    vim.fn.writefile(modified_lines, right_path)
 
     local lines_diff = diff.compute_diff(original_lines, modified_lines)
     local view = render.create_diff_view(original_lines, modified_lines, lines_diff, {
       left_type = render.BufferType.REAL_FILE,
-      left_config = { file_path = "/tmp/test_left3.txt" },
+      left_config = { file_path = left_path },
       right_type = render.BufferType.REAL_FILE,
-      right_config = { file_path = "/tmp/test_right3.txt" },
+      right_config = { file_path = right_path },
     })
 
     -- Wait for vim.schedule to complete
@@ -123,9 +143,9 @@ describe("Auto-scroll to first hunk", function()
     local lines_diff = diff.compute_diff(lines, lines)
     local view = render.create_diff_view(lines, lines, lines_diff, {
       left_type = render.BufferType.REAL_FILE,
-      left_config = { file_path = "/tmp/test_left4.txt" },
+      left_config = { file_path = get_temp_path("test_left4.txt") },
       right_type = render.BufferType.REAL_FILE,
-      right_config = { file_path = "/tmp/test_right4.txt" },
+      right_config = { file_path = get_temp_path("test_right4.txt") },
     })
 
     vim.cmd("redraw")
@@ -150,9 +170,9 @@ describe("Auto-scroll to first hunk", function()
     local lines_diff = diff.compute_diff(original, modified)
     local view = render.create_diff_view(original, modified, lines_diff, {
       left_type = render.BufferType.REAL_FILE,
-      left_config = { file_path = "/tmp/test_left5.txt" },
+      left_config = { file_path = get_temp_path("test_left5.txt") },
       right_type = render.BufferType.REAL_FILE,
-      right_config = { file_path = "/tmp/test_right5.txt" },
+      right_config = { file_path = get_temp_path("test_right5.txt") },
     })
 
     vim.cmd("redraw")

@@ -189,11 +189,15 @@ describe("Semantic Tokens Rendering", function()
     assert.are.equal(git_root, parsed_root, "Parsed git root should match")
     assert.are.equal(commit, parsed_commit, "Parsed commit should match")
     assert.are.equal(filepath, parsed_path, "Parsed filepath should match")
-    
-    -- Test with different inputs
-    local url2 = virtual_file.create_url("/tmp/test", "abc123", "test.lua")
+
+    -- Test with different inputs (use platform-agnostic path)
+    local test_root = vim.fn.has("win32") == 1 and "C:/test" or "/tmp/test"
+    local url2 = virtual_file.create_url(test_root, "abc123", "test.lua")
     local root2, commit2, path2 = virtual_file.parse_url(url2)
-    assert.are.equal("/tmp/test", root2, "Root should match")
+    -- Normalize both paths for comparison on Windows
+    local normalized_root2 = vim.fn.fnamemodify(root2, ':p'):gsub('[/\\]$', ''):gsub('\\', '/')
+    local normalized_test_root = vim.fn.fnamemodify(test_root, ':p'):gsub('[/\\]$', ''):gsub('\\', '/')
+    assert.are.equal(normalized_test_root, normalized_root2, "Root should match")
     assert.are.equal("abc123", commit2, "Commit should match")
     assert.are.equal("test.lua", path2, "Path should match")
   end)
