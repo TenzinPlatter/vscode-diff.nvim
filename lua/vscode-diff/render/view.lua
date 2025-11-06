@@ -124,7 +124,7 @@ function M.create(original_lines, modified_lines, lines_diff, opts)
 
   -- Register this diff view for lifecycle management
   local current_tab = vim.api.nvim_get_current_tabpage()
-  lifecycle.register(current_tab, left_buf, right_buf, left_win, right_win)
+  lifecycle.register(current_tab, left_buf, right_buf, left_win, right_win, original_lines, modified_lines, lines_diff)
 
   -- Set up rendering after buffers are ready
   -- For virtual files, we wait for VscodeDiffVirtualFileLoaded event

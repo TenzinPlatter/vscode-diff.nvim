@@ -6,7 +6,16 @@ local highlights = require('vscode-diff.render.highlights')
 local config = require('vscode-diff.config')
 
 -- Track active diff sessions
--- Structure: { tabpage_id = { left_bufnr, right_bufnr, left_win, right_win, left_uri, saved_state } }
+-- Structure: { 
+--   tabpage_id = { 
+--     left_bufnr, right_bufnr, left_win, right_win, left_uri, 
+--     left_state, right_state,
+--     suspended = bool,
+--     stored_diff_result = lines_diff,  -- Only store diff result
+--     changedtick = { left = number, right = number },
+--     mtime = { left = number, right = number }  -- File modification time
+--   } 
+-- }
 local active_diffs = {}
 
 -- Autocmd group for cleanup
@@ -40,13 +49,154 @@ local function restore_buffer_state(bufnr, state)
   end
 end
 
+-- Clear highlights and extmarks from a buffer
+-- @param bufnr number: Buffer number to clean
+local function clear_buffer_highlights(bufnr)
+  if not vim.api.nvim_buf_is_valid(bufnr) then
+    return
+  end
+  
+  -- Clear both highlight and filler namespaces
+  vim.api.nvim_buf_clear_namespace(bufnr, highlights.ns_highlight, 0, -1)
+  vim.api.nvim_buf_clear_namespace(bufnr, highlights.ns_filler, 0, -1)
+end
+
+-- Get file modification time (mtime)
+local function get_file_mtime(bufnr)
+  if not vim.api.nvim_buf_is_valid(bufnr) then
+    return nil
+  end
+  
+  local bufname = vim.api.nvim_buf_get_name(bufnr)
+  
+  -- Virtual buffers don't have mtime
+  if bufname:match('^vscodediff://') or bufname == '' then
+    return nil
+  end
+  
+  -- Get file stat
+  local stat = vim.loop.fs_stat(bufname)
+  return stat and stat.mtime.sec or nil
+end
+
+-- Suspend diff view (when leaving tab)
+-- @param tabpage number: Tab page ID
+local function suspend_diff(tabpage)
+  local diff = active_diffs[tabpage]
+  if not diff or diff.suspended then
+    return
+  end
+  
+  -- Disable auto-refresh (stop watching buffer changes)
+  local auto_refresh = require('vscode-diff.auto_refresh')
+  auto_refresh.disable(diff.left_bufnr)
+  auto_refresh.disable(diff.right_bufnr)
+  
+  -- Clear highlights from both buffers
+  clear_buffer_highlights(diff.left_bufnr)
+  clear_buffer_highlights(diff.right_bufnr)
+  
+  -- Mark as suspended
+  diff.suspended = true
+end
+
+-- Resume diff view (when entering tab)
+-- @param tabpage number: Tab page ID
+local function resume_diff(tabpage)
+  local diff = active_diffs[tabpage]
+  if not diff or not diff.suspended then
+    return
+  end
+  
+  -- Check if buffers still exist
+  if not vim.api.nvim_buf_is_valid(diff.left_bufnr) or not vim.api.nvim_buf_is_valid(diff.right_bufnr) then
+    active_diffs[tabpage] = nil
+    return
+  end
+  
+  -- Check if buffer or file changed while suspended
+  local left_tick_changed = vim.api.nvim_buf_get_changedtick(diff.left_bufnr) ~= diff.changedtick.left
+  local right_tick_changed = vim.api.nvim_buf_get_changedtick(diff.right_bufnr) ~= diff.changedtick.right
+  
+  local left_mtime_changed = false
+  local right_mtime_changed = false
+  
+  if diff.mtime.left then
+    local current_mtime = get_file_mtime(diff.left_bufnr)
+    left_mtime_changed = current_mtime ~= diff.mtime.left
+  end
+  
+  if diff.mtime.right then
+    local current_mtime = get_file_mtime(diff.right_bufnr)
+    right_mtime_changed = current_mtime ~= diff.mtime.right
+  end
+  
+  local need_recompute = left_tick_changed or right_tick_changed or left_mtime_changed or right_mtime_changed
+  
+  -- Always get fresh buffer content for rendering
+  local left_lines = vim.api.nvim_buf_get_lines(diff.left_bufnr, 0, -1, false)
+  local right_lines = vim.api.nvim_buf_get_lines(diff.right_bufnr, 0, -1, false)
+  
+  local lines_diff
+  
+  if need_recompute or not diff.stored_diff_result then
+    -- Buffer or file changed, recompute diff
+    local diff_module = require('vscode-diff.diff')
+    lines_diff = diff_module.compute_diff(left_lines, right_lines)
+    
+    if lines_diff then
+      -- Store new diff result
+      diff.stored_diff_result = lines_diff
+      
+      -- Update changedtick and mtime
+      diff.changedtick.left = vim.api.nvim_buf_get_changedtick(diff.left_bufnr)
+      diff.changedtick.right = vim.api.nvim_buf_get_changedtick(diff.right_bufnr)
+      diff.mtime.left = get_file_mtime(diff.left_bufnr)
+      diff.mtime.right = get_file_mtime(diff.right_bufnr)
+    end
+  else
+    -- Nothing changed, reuse stored diff result
+    lines_diff = diff.stored_diff_result
+  end
+  
+  -- Render with fresh content and (possibly reused) diff result
+  if lines_diff then
+    local core = require('vscode-diff.render.core')
+    core.render_diff(diff.left_bufnr, diff.right_bufnr, left_lines, right_lines, lines_diff)
+  end
+  
+  -- Re-enable auto-refresh for real buffers only
+  local auto_refresh = require('vscode-diff.auto_refresh')
+  
+  -- Check if buffers are real files (not virtual)
+  local left_name = vim.api.nvim_buf_get_name(diff.left_bufnr)
+  local right_name = vim.api.nvim_buf_get_name(diff.right_bufnr)
+  
+  local left_is_real = not left_name:match('^vscodediff://')
+  local right_is_real = not right_name:match('^vscodediff://')
+  
+  if left_is_real then
+    auto_refresh.enable(diff.left_bufnr, diff.left_bufnr, diff.right_bufnr)
+  end
+  
+  if right_is_real then
+    auto_refresh.enable(diff.right_bufnr, diff.left_bufnr, diff.right_bufnr)
+  end
+  
+  -- Mark as active
+  diff.suspended = false
+end
+
 -- Setup lifecycle tracking for a new diff view
 -- @param tabpage number: Tab page ID
 -- @param left_bufnr number: Left buffer number
 -- @param right_bufnr number: Right buffer number
 -- @param left_win number: Left window ID
 -- @param right_win number: Right window ID
-function M.register(tabpage, left_bufnr, right_bufnr, left_win, right_win)
+-- @param original_lines table: Original buffer lines
+-- @param modified_lines table: Modified buffer lines
+-- @param lines_diff table: Diff result
+function M.register(tabpage, left_bufnr, right_bufnr, left_win, right_win, original_lines, modified_lines, lines_diff)
   -- Save state before modifying buffers
   local left_state = save_buffer_state(left_bufnr)
   local right_state = save_buffer_state(right_bufnr)
@@ -66,9 +216,19 @@ function M.register(tabpage, left_bufnr, right_bufnr, left_win, right_win)
     right_bufnr = right_bufnr,
     left_win = left_win,
     right_win = right_win,
-    left_uri = left_uri,  -- Cache URI for didClose notification
+    left_uri = left_uri,
     left_state = left_state,
     right_state = right_state,
+    suspended = false,
+    stored_diff_result = lines_diff,  -- Only store diff result
+    changedtick = {
+      left = vim.api.nvim_buf_get_changedtick(left_bufnr),
+      right = vim.api.nvim_buf_get_changedtick(right_bufnr),
+    },
+    mtime = {
+      left = get_file_mtime(left_bufnr),
+      right = get_file_mtime(right_bufnr),
+    },
   }
   
   -- Mark windows with our restore flag (similar to vim-fugitive)
@@ -80,18 +240,31 @@ function M.register(tabpage, left_bufnr, right_bufnr, left_win, right_win)
     vim.lsp.inlay_hint.enable(false, { bufnr = left_bufnr })
     vim.lsp.inlay_hint.enable(false, { bufnr = right_bufnr })
   end
-end
-
--- Clear highlights and extmarks from a buffer
--- @param bufnr number: Buffer number to clean
-local function clear_buffer_highlights(bufnr)
-  if not vim.api.nvim_buf_is_valid(bufnr) then
-    return
-  end
   
-  -- Clear both highlight and filler namespaces
-  vim.api.nvim_buf_clear_namespace(bufnr, highlights.ns_highlight, 0, -1)
-  vim.api.nvim_buf_clear_namespace(bufnr, highlights.ns_filler, 0, -1)
+  -- Setup TabLeave autocmd to suspend when leaving this tab
+  vim.api.nvim_create_autocmd('TabLeave', {
+    group = augroup,
+    callback = function()
+      local current_tab = vim.api.nvim_get_current_tabpage()
+      if current_tab == tabpage then
+        suspend_diff(tabpage)
+      end
+    end,
+  })
+  
+  -- Setup TabEnter autocmd to resume when entering this tab
+  vim.api.nvim_create_autocmd('TabEnter', {
+    group = augroup,
+    callback = function()
+      -- TabEnter fires when entering ANY tab, we need to check if it's our diff tab
+      vim.schedule(function()
+        local current_tab = vim.api.nvim_get_current_tabpage()
+        if current_tab == tabpage and active_diffs[tabpage] then
+          resume_diff(tabpage)
+        end
+      end)
+    end,
+  })
 end
 
 -- Cleanup a specific diff session
