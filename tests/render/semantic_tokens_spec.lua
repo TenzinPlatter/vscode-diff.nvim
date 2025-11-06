@@ -175,8 +175,8 @@ describe("Semantic Tokens Rendering", function()
   it("Virtual file URL creation and parsing", function()
     local virtual_file = require("vscode-diff.virtual_file")
     
-    -- Test URL creation with actual hex commit hash
-    local git_root = "/home/user/project"
+    -- Test URL creation with actual hex commit hash (use platform-agnostic path)
+    local git_root = vim.fn.has("win32") == 1 and "D:/project" or "/home/user/project"
     local commit = "abc123def456"  -- Use hex commit hash instead of "HEAD"
     local filepath = "src/file.lua"
     
@@ -184,9 +184,11 @@ describe("Semantic Tokens Rendering", function()
     assert.are.equal("string", type(url), "URL should be a string")
     assert.is_true(url:match("^vscodediff://") ~= nil, "URL should start with vscodediff://")
     
-    -- Test URL parsing
+    -- Test URL parsing (normalize both for comparison)
     local parsed_root, parsed_commit, parsed_path = virtual_file.parse_url(url)
-    assert.are.equal(git_root, parsed_root, "Parsed git root should match")
+    local normalized_parsed = vim.fn.fnamemodify(parsed_root, ':p'):gsub('[/\\]$', ''):gsub('\\', '/')
+    local normalized_expected = vim.fn.fnamemodify(git_root, ':p'):gsub('[/\\]$', ''):gsub('\\', '/')
+    assert.are.equal(normalized_expected, normalized_parsed, "Parsed git root should match")
     assert.are.equal(commit, parsed_commit, "Parsed commit should match")
     assert.are.equal(filepath, parsed_path, "Parsed filepath should match")
 
