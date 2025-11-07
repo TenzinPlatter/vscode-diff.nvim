@@ -29,13 +29,22 @@ import { DefaultLinesDiffComputer } from './vscode/src/vs/editor/common/diff/def
 function main() {
     const args = process.argv.slice(2);
     
-    if (args.length < 2) {
-        console.error('Usage: node vscode-diff.js <file1> <file2>');
+    // Parse -t flag
+    let showTiming = false;
+    let fileArgs = args;
+    
+    if (args.length > 0 && args[0] === '-t') {
+        showTiming = true;
+        fileArgs = args.slice(1);
+    }
+    
+    if (fileArgs.length < 2) {
+        console.error('Usage: node vscode-diff.js [-t] <file1> <file2>');
         process.exit(1);
     }
 
-    const file1Path = args[0];
-    const file2Path = args[1];
+    const file1Path = fileArgs[0];
+    const file2Path = fileArgs[1];
 
     const file1Content = readFileSync(file1Path, 'utf-8');
     const file2Content = readFileSync(file2Path, 'utf-8');
@@ -55,12 +64,15 @@ function main() {
 
     const diffComputer = new DefaultLinesDiffComputer();
     
+    const startTime = performance.now();
     const result = diffComputer.computeDiff(file1Lines, file2Lines, {
         ignoreTrimWhitespace: false,
         maxComputationTimeMs: 0,
         computeMoves: false,
         extendToSubwords: false,
     });
+    const endTime = performance.now();
+    const elapsedMs = endTime - startTime;
 
     // Print results
     console.log('Diff Results:');
@@ -100,14 +112,18 @@ function main() {
     }
     
     console.log('\n=================================================================');
+    
+    if (showTiming) {
+        console.log(`Computation time: ${elapsedMs.toFixed(3)} ms`);
+    }
 }
 
 main();
 EOF
 
-echo "Installing bundler..."
-npm init -y > /dev/null 2>&1
-npm install --no-save esbuild > /dev/null 2>&1
+# echo "Installing bundler..."
+# npm init -y > /dev/null 2>&1
+# npm install --no-save esbuild > /dev/null 2>&1
 
 echo "Bundling TypeScript code into single JavaScript file..."
 npx esbuild vscode-diff-wrapper.ts --bundle --platform=node --format=esm --outfile=vscode-diff.mjs

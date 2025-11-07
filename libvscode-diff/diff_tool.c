@@ -195,9 +195,6 @@ int main(int argc, char* argv[]) {
     printf("=================================================================\n");
     printf("Number of changes: %d\n", diff->changes.count);
     printf("Hit timeout: %s\n", diff->hit_timeout ? "yes" : "no");
-    if (show_timing) {
-        printf("Computation time: %.3f ms\n", elapsed_ms);
-    }
     printf("\n");
     
     if (diff->changes.count > 0) {
@@ -207,6 +204,10 @@ int main(int argc, char* argv[]) {
     }
     
     printf("\n=================================================================\n");
+    
+    if (show_timing) {
+        printf("Computation time: %.3f ms\n", elapsed_ms);
+    }
     
     // Cleanup
     free_lines_diff(diff);
