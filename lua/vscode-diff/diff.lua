@@ -4,18 +4,43 @@
 local M = {}
 local ffi = require("ffi")
 
--- Load the C library
-local lib_name = "libvscode_diff"
+-- Get VERSION from version.lua (single source of truth)
+local version = require("vscode-diff.version")
+local VERSION = version.VERSION
+
+-- Load the C library with automatic installation
 local lib_ext
 if ffi.os == "Windows" then
-  lib_ext = ".dll"
+  lib_ext = "dll"
 elseif ffi.os == "OSX" then
-  lib_ext = ".dylib"
+  lib_ext = "dylib"
 else
-  lib_ext = ".so"
+  lib_ext = "so"
 end
 
-local lib_path = vim.fn.fnamemodify(debug.getinfo(1).source:sub(2), ":h:h:h") .. "/" .. lib_name .. lib_ext
+-- Build versioned library filename
+local plugin_root = vim.fn.fnamemodify(debug.getinfo(1).source:sub(2), ":h:h:h")
+local lib_name = string.format("libvscode_diff_%s.%s", VERSION, lib_ext)
+local lib_path = plugin_root .. "/" .. lib_name
+
+-- Check if library exists or needs update, if so, install/update it
+local installer = require("vscode-diff.installer")
+if installer.needs_update() then
+  local success, err = installer.install({ silent = false })
+  if not success then
+    error(string.format(
+      "libvscode-diff not found and automatic installation failed: %s\n" ..
+      "Troubleshooting:\n" ..
+      "1. Check that curl or wget is installed\n" ..
+      "2. Verify internet connectivity to github.com\n" ..
+      "3. Try manual install: :CodeDiff install!\n" ..
+      "4. Or build from source: run 'make' (Unix) or 'build.cmd' (Windows)\n" ..
+      "5. Download manually from: https://github.com/esmuellert/vscode-diff.nvim/releases",
+      err or "unknown error"
+    ))
+  end
+end
+
 local lib = ffi.load(lib_path)
 
 -- FFI type definitions matching C types.h
