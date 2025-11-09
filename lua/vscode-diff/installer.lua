@@ -49,62 +49,62 @@ local function get_lib_ext()
   end
 end
 
--- Get library filename (without version)
-local function get_lib_filename()
-  return "libvscode_diff." .. get_lib_ext()
+-- Get library filename with version
+local function get_lib_filename(version)
+  return string.format("libvscode_diff_%s.%s", version, get_lib_ext())
 end
 
--- Get the current VERSION from VERSION file
+-- Get the current VERSION from init.lua (single source of truth)
 local function get_current_version()
-  local version_file = get_plugin_root() .. "/VERSION"
-  local f = io.open(version_file, "r")
-  if f then
-    local content = f:read("*all")
-    f:close()
-    return content:match("^%s*(.-)%s*$")
+  local vscode_diff = require("vscode-diff")
+  return vscode_diff.VERSION
+end
+
+-- Get installed library version by checking existing versioned files
+local function get_installed_version()
+  local plugin_root = get_plugin_root()
+  local ext = get_lib_ext()
+  -- Escape the dot in the extension for pattern matching
+  local pattern = "libvscode_diff_(.+)%." .. ext
+  
+  -- List files in plugin root and find versioned library
+  local handle = vim.loop.fs_scandir(plugin_root)
+  if handle then
+    while true do
+      local name, type = vim.loop.fs_scandir_next(handle)
+      if not name then break end
+      
+      if type == "file" then
+        local version = name:match(pattern)
+        if version then
+          return version
+        end
+      end
+    end
   end
+  
   return nil
 end
 
--- Save the installed library version
-local function save_installed_version(version)
-  local version_marker = get_plugin_root() .. "/.libvscode_diff_version"
-  local f = io.open(version_marker, "w")
-  if f then
-    f:write(version)
-    f:close()
-    return true
-  end
-  return false
-end
-
 -- Build download URL for GitHub release
-local function build_download_url(os, arch)
-  local version_file = get_plugin_root() .. "/VERSION"
-  local version = nil
-  
-  -- Read version from VERSION file (required)
-  local f = io.open(version_file, "r")
-  if f then
-    local content = f:read("*all")
-    f:close()
-    -- Extract version, remove trailing whitespace/newlines
-    version = content:match("^%s*(.-)%s*$")
-  end
-  
+local function build_download_url(os, arch, version)
   if not version or version == "" then
-    return nil, nil, "Failed to read VERSION file at: " .. version_file
+    return nil, nil, "VERSION is not available"
   end
   
   local ext = get_lib_ext()
-  local filename = string.format("libvscode_diff_%s_%s_%s.%s", os, arch, version, ext)
+  -- Download filename from GitHub (includes platform info)
+  local download_filename = string.format("libvscode_diff_%s_%s_%s.%s", os, arch, version, ext)
+  -- Local filename (only includes version)
+  local local_filename = get_lib_filename(version)
+  
   local url = string.format(
     "https://github.com/esmuellert/vscode-diff.nvim/releases/download/v%s/%s",
     version,
-    filename
+    download_filename
   )
   
-  return url, filename, nil
+  return url, local_filename, nil
 end
 
 -- Check if a command exists
@@ -185,26 +185,40 @@ function M.install(opts)
   local force = opts.force or false
   
   local plugin_root = get_plugin_root()
-  local lib_path = plugin_root .. "/" .. get_lib_filename()
+  local current_version = get_current_version()
+  
+  if not current_version then
+    local msg = "Failed to read VERSION"
+    vim.notify(msg, vim.log.levels.ERROR)
+    return false, msg
+  end
+  
+  local lib_filename = get_lib_filename(current_version)
+  local lib_path = plugin_root .. "/" .. lib_filename
   
   -- Check if library already exists and is up-to-date
   if not force then
-    if vim.fn.filereadable(lib_path) == 1 then
-      -- Check if version matches
-      local current_version = get_current_version()
-      local installed_version = M.get_installed_version()
-      
-      if current_version and installed_version and current_version == installed_version then
+    local installed_version = get_installed_version()
+    
+    if installed_version and installed_version == current_version then
+      if vim.fn.filereadable(lib_path) == 1 then
         if not opts.silent then
           vim.notify("libvscode-diff already installed at: " .. lib_path, vim.log.levels.INFO)
         end
         return true
-      elseif not opts.silent then
-        vim.notify(string.format(
-          "Updating libvscode-diff from v%s to v%s...",
-          installed_version or "unknown",
-          current_version or "unknown"
-        ), vim.log.levels.INFO)
+      end
+    elseif installed_version and not opts.silent then
+      vim.notify(string.format(
+        "Updating libvscode-diff from v%s to v%s...",
+        installed_version,
+        current_version
+      ), vim.log.levels.INFO)
+      
+      -- Remove old version files
+      local old_lib_filename = get_lib_filename(installed_version)
+      local old_lib_path = plugin_root .. "/" .. old_lib_filename
+      if vim.fn.filereadable(old_lib_path) == 1 then
+        os.remove(old_lib_path)
       end
     end
   end
@@ -221,13 +235,13 @@ function M.install(opts)
   
   if not opts.silent then
     vim.notify(
-      string.format("Installing libvscode-diff for %s %s...", os_name, arch),
+      string.format("Installing libvscode-diff v%s for %s %s...", current_version, os_name, arch),
       vim.log.levels.INFO
     )
   end
   
   -- Build download URL
-  local url, filename, url_err = build_download_url(os_name, arch)
+  local url, local_filename, url_err = build_download_url(os_name, arch, current_version)
   
   if not url then
     local msg = "Failed to build download URL: " .. (url_err or "unknown error")
@@ -240,7 +254,7 @@ function M.install(opts)
   end
   
   -- Download to temporary location first
-  local temp_path = plugin_root .. "/" .. filename .. ".tmp"
+  local temp_path = plugin_root .. "/" .. local_filename .. ".tmp"
   local success, err = download_file(url, temp_path)
   
   if not success then
@@ -260,12 +274,6 @@ function M.install(opts)
     return false, msg
   end
   
-  -- Save the version marker
-  local current_version = get_current_version()
-  if current_version then
-    save_installed_version(current_version)
-  end
-  
   if not opts.silent then
     vim.notify("Successfully installed libvscode-diff!", vim.log.levels.INFO)
   end
@@ -275,39 +283,42 @@ end
 
 -- Check if library is installed
 function M.is_installed()
+  local current_version = get_current_version()
+  if not current_version then
+    return false
+  end
+  
   local plugin_root = get_plugin_root()
-  local lib_path = plugin_root .. "/" .. get_lib_filename()
+  local lib_path = plugin_root .. "/" .. get_lib_filename(current_version)
   return vim.fn.filereadable(lib_path) == 1
 end
 
 -- Get library path
 function M.get_lib_path()
+  local current_version = get_current_version()
+  if not current_version then
+    return nil
+  end
+  
   local plugin_root = get_plugin_root()
-  return plugin_root .. "/" .. get_lib_filename()
+  return plugin_root .. "/" .. get_lib_filename(current_version)
 end
 
--- Get the installed library version
+-- Get the installed library version (by checking existing versioned files)
 function M.get_installed_version()
-  local version_marker = get_plugin_root() .. "/.libvscode_diff_version"
-  local f = io.open(version_marker, "r")
-  if f then
-    local version = f:read("*all")
-    f:close()
-    return version:match("^%s*(.-)%s*$")
-  end
-  return nil
+  return get_installed_version()
 end
 
 -- Check if library needs update
 function M.needs_update()
-  if not M.is_installed() then
+  local current_version = get_current_version()
+  if not current_version then
     return true
   end
   
-  local current_version = get_current_version()
-  local installed_version = M.get_installed_version()
+  local installed_version = get_installed_version()
   
-  if not current_version or not installed_version then
+  if not installed_version then
     return true
   end
   

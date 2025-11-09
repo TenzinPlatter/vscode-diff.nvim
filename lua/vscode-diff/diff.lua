@@ -4,18 +4,24 @@
 local M = {}
 local ffi = require("ffi")
 
+-- Get VERSION from init.lua (single source of truth)
+local vscode_diff = require("vscode-diff")
+local VERSION = vscode_diff.VERSION
+
 -- Load the C library with automatic installation
-local lib_name = "libvscode_diff"
 local lib_ext
 if ffi.os == "Windows" then
-  lib_ext = ".dll"
+  lib_ext = "dll"
 elseif ffi.os == "OSX" then
-  lib_ext = ".dylib"
+  lib_ext = "dylib"
 else
-  lib_ext = ".so"
+  lib_ext = "so"
 end
 
-local lib_path = vim.fn.fnamemodify(debug.getinfo(1).source:sub(2), ":h:h:h") .. "/" .. lib_name .. lib_ext
+-- Build versioned library filename
+local plugin_root = vim.fn.fnamemodify(debug.getinfo(1).source:sub(2), ":h:h:h")
+local lib_name = string.format("libvscode_diff_%s.%s", VERSION, lib_ext)
+local lib_path = plugin_root .. "/" .. lib_name
 
 -- Check if library exists or needs update, if so, install/update it
 local installer = require("vscode-diff.installer")
