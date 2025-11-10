@@ -739,7 +739,9 @@ void free_lines_diff(LinesDiff* diff) {
 
 /**
  * Get library version.
+ * Version is embedded at build time from VERSION file.
  */
+#include "version.h"
 const char* get_version(void) {
-    return "0.3.0-compute-diff";
+    return VSCODE_DIFF_VERSION;
 }
