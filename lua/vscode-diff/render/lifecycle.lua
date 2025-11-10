@@ -202,8 +202,8 @@ local function resume_diff(tabpage)
       local current_win = vim.api.nvim_get_current_win()
 
       if current_win == diff.original_win or current_win == diff.modified_win then
-        -- Step 1: Remember cursor position after render
-        local saved_line = vim.api.nvim_win_get_cursor(current_win)[1]
+        -- Step 1: Remember cursor position (line AND column)
+        local saved_cursor = vim.api.nvim_win_get_cursor(current_win)
 
         -- Step 2: Reset both to line 1 (baseline)
         vim.api.nvim_win_set_cursor(diff.original_win, {1, 0})
@@ -215,9 +215,9 @@ local function resume_diff(tabpage)
         vim.wo[diff.original_win].scrollbind = true
         vim.wo[diff.modified_win].scrollbind = true
 
-        -- Step 4: Set both to saved line (like initial creation)
-        pcall(vim.api.nvim_win_set_cursor, diff.original_win, {saved_line, 0})
-        pcall(vim.api.nvim_win_set_cursor, diff.modified_win, {saved_line, 0})
+        -- Step 4: Restore cursor position with both line and column
+        pcall(vim.api.nvim_win_set_cursor, diff.original_win, saved_cursor)
+        pcall(vim.api.nvim_win_set_cursor, diff.modified_win, saved_cursor)
       end
     end
   end
