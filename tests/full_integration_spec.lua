@@ -41,7 +41,8 @@ describe("Full Integration Suite", function()
     local function git(args)
       -- Use -C to run git in the temp directory
       -- On Windows, we need to ensure paths are handled correctly
-      local cmd = "git -C " .. vim.fn.shellescape(temp_dir) .. " " .. args
+      -- Use string.format for safer command construction
+      local cmd = string.format('git -C %s %s', vim.fn.shellescape(temp_dir), args)
       return vim.fn.system(cmd)
     end
     
@@ -131,10 +132,10 @@ describe("Full Integration Suite", function()
     -- Create a dev branch and switch to it so main is different
     -- Use shellescape for paths to handle spaces/special chars on Windows
     local safe_temp_dir = vim.fn.shellescape(temp_dir)
-    vim.fn.system("git -C " .. safe_temp_dir .. " reset --hard HEAD~1")
-    vim.fn.system("git -C " .. safe_temp_dir .. " checkout -b feature")
+    vim.fn.system(string.format('git -C %s reset --hard HEAD~1', safe_temp_dir))
+    vim.fn.system(string.format('git -C %s checkout -b feature', safe_temp_dir))
     vim.fn.writefile({"feature change"}, temp_dir .. "/file.txt")
-    vim.fn.system("git -C " .. safe_temp_dir .. " commit -am 'feature commit'")
+    vim.fn.system(string.format('git -C %s commit -am "feature commit"', safe_temp_dir))
     
     -- Now compare against main
     vim.cmd("CodeDiff main")
@@ -151,7 +152,7 @@ describe("Full Integration Suite", function()
   it("Runs :CodeDiff main HEAD", function()
     -- Ensure there is a diff between main and HEAD
     local safe_temp_dir = vim.fn.shellescape(temp_dir)
-    vim.fn.system("git -C " .. safe_temp_dir .. " checkout HEAD~1")
+    vim.fn.system(string.format('git -C %s checkout HEAD~1', safe_temp_dir))
     -- Now HEAD is commit 1. main is commit 2.
     
     vim.cmd("CodeDiff main HEAD")
