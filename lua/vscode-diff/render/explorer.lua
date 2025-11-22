@@ -78,7 +78,7 @@ local function create_tree_data(status_result, git_root, base_revision)
 end
 
 -- Render tree node
-local function prepare_node(node, max_width, selected_path)
+local function prepare_node(node, max_width, selected_path, selected_group)
   local line = NuiLine()
   local data = node.data or {}
 
@@ -88,7 +88,8 @@ local function prepare_node(node, max_width, selected_path)
     line:append(icon .. " ", "Directory")
     line:append(node.text, "Directory")
   else
-    local is_selected = data.path and data.path == selected_path
+    -- Match both path AND group to handle files in both staged and unstaged
+    local is_selected = data.path and data.path == selected_path and data.group == selected_group
     local function get_hl(default)
       return is_selected and "CodeDiffExplorerSelected" or (default or "Normal")
     end
@@ -193,8 +194,9 @@ function M.create(status_result, git_root, tabpage, width, base_revision, target
   -- Mount split first to get bufnr
   split:mount()
 
-  -- Track selected path for highlighting
+  -- Track selected path and group for highlighting
   local selected_path = nil
+  local selected_group = nil
 
   -- Create tree with buffer number
   local tree_data = create_tree_data(status_result, git_root, base_revision)
@@ -202,7 +204,7 @@ function M.create(status_result, git_root, tabpage, width, base_revision, target
     bufnr = split.bufnr,
     nodes = tree_data,
     prepare_node = function(node)
-      return prepare_node(node, explorer_width, selected_path)
+      return prepare_node(node, explorer_width, selected_path, selected_group)
     end,
   })
 
@@ -349,10 +351,11 @@ function M.create(status_result, git_root, tabpage, width, base_revision, target
     end)
   end
   
-  -- Wrap on_file_select to track current file
+  -- Wrap on_file_select to track current file and group
   explorer.on_file_select = function(file_data)
     explorer.current_file_path = file_data.path
     selected_path = file_data.path
+    selected_group = file_data.group
     tree:render()
     on_file_select(file_data)
   end
