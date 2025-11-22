@@ -78,7 +78,7 @@ local function create_tree_data(status_result, git_root, base_revision)
 end
 
 -- Render tree node
-local function prepare_node(node, max_width)
+local function prepare_node(node, max_width, selected_path)
   local line = NuiLine()
   local data = node.data or {}
 
@@ -131,8 +131,12 @@ local function prepare_node(node, max_width)
       end
     end
     
+    -- Determine highlight for filename
+    local is_selected = data.path and data.path == selected_path
+    local filename_hl = is_selected and "CodeDiffExplorerSelected" or "Normal"
+    
     -- Append filename (normal weight) and directory (dimmed with smaller font)
-    line:append(filename, "Normal")
+    line:append(filename, filename_hl)
     if #directory > 0 then
       line:append(" ", "Normal")
       line:append(directory, "ExplorerDirectorySmall")  -- Smaller dimmed style
@@ -178,13 +182,16 @@ function M.create(status_result, git_root, tabpage, width, base_revision, target
   -- Mount split first to get bufnr
   split:mount()
 
+  -- Track selected path for highlighting
+  local selected_path = nil
+
   -- Create tree with buffer number
   local tree_data = create_tree_data(status_result, git_root, base_revision)
   local tree = Tree({
     bufnr = split.bufnr,
     nodes = tree_data,
     prepare_node = function(node)
-      return prepare_node(node, explorer_width)
+      return prepare_node(node, explorer_width, selected_path)
     end,
   })
 
@@ -334,6 +341,8 @@ function M.create(status_result, git_root, tabpage, width, base_revision, target
   -- Wrap on_file_select to track current file
   explorer.on_file_select = function(file_data)
     explorer.current_file_path = file_data.path
+    selected_path = file_data.path
+    tree:render()
     on_file_select(file_data)
   end
 
