@@ -2,6 +2,7 @@
 local M = {}
 
 local git = require("vscode-diff.git")
+local lifecycle = require("vscode-diff.render.lifecycle")
 
 --- Handles diffing the current buffer against a given git revision.
 -- @param revision string: The git revision (e.g., "HEAD", commit hash, branch name) to compare the current file against.
@@ -150,6 +151,13 @@ local function handle_explorer(revision)
 end
 
 function M.vscode_diff(opts)
+  -- Check if current tab is a diff view and toggle (close) it if so
+  local current_tab = vim.api.nvim_get_current_tabpage()
+  if lifecycle.get_session(current_tab) then
+    vim.cmd("tabclose")
+    return
+  end
+
   local args = opts.fargs
 
   if #args == 0 then
