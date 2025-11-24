@@ -300,8 +300,6 @@ The plugin handles syntax highlighting differently based on buffer type:
 
 ### Highlight Groups
 
-<img width="1920" height="1440" alt="921_1x_shots_so" src="https://github.com/user-attachments/assets/760fa8be-dba7-4eb5-b71b-c53fb3aa6edf" />
-
 The plugin defines highlight groups matching VSCode's diff colors:
 
 - `CodeDiffLineInsert` - Light green background for inserted lines
@@ -309,6 +307,27 @@ The plugin defines highlight groups matching VSCode's diff colors:
 - `CodeDiffCharInsert` - Deep/dark green for inserted characters
 - `CodeDiffCharDelete` - Deep/dark red for deleted characters
 - `CodeDiffFiller` - Gray foreground for filler line slashes (`╱╱╱`)
+
+<details>
+<summary><b>Visual Examples</b> (Click to expand)</summary>
+
+#### Dawnfox Light
+
+Default configuration with auto-detected brightness adjustment (`char_brightness = 0.92` for light themes):
+
+![Dawnfox Light theme with default auto color selection](https://github.com/user-attachments/assets/760fa8be-dba7-4eb5-b71b-c53fb3aa6edf)
+
+<!-- Add more theme examples below as needed:
+
+#### [Theme Name]
+
+Description of configuration or special settings used.
+
+![Alt text](image-url)
+
+-->
+
+</details>
 
 **Default behavior:**
 - Uses your colorscheme's `DiffAdd` and `DiffDelete` for line-level highlights
