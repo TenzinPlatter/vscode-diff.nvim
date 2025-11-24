@@ -112,6 +112,10 @@ local function compute_and_render(original_buf, modified_buf, original_lines, mo
     vim.wo[original_win].scrollbind = true
     vim.wo[modified_win].scrollbind = true
     
+    -- Re-apply critical window options that might have been reset
+    vim.wo[original_win].wrap = false
+    vim.wo[modified_win].wrap = false
+    
     -- Step 3a: On create, scroll to first change
     if auto_scroll_to_first_hunk and #lines_diff.changes > 0 then
       local first_change = lines_diff.changes[1]
